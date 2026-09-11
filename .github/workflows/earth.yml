@@ -31,7 +31,9 @@ permissions:
 
 concurrency:
   group: earth
-  cancel-in-progress: false   # ★★自分で呼んだ次の回が自分を殺さないように
+  # ★★★この回だけ true。★死んだ世界を4時間半書き続けている古い回を止めるため。
+  #   ★★次の push で false に戻す（★true のままだと自分で呼んだ次の回が自分を殺す）。
+  cancel-in-progress: true
 
 jobs:
   turn:
