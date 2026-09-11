@@ -61,6 +61,14 @@ td:last-child{text-align:right;font-weight:600}
   <span><span class="k">温度</span><span id="T" class="v">-</span></span>
   <span><span class="k">経過</span><span id="min" class="v">-</span></span>
   <span><span class="k">融合の障壁</span><span id="cb" class="v">-</span></span>
+  <span id="qwrap" style="display:none">
+    <span class="k ok">電荷のずれ</span><span id="qdrift" class="v ok">-</span></span>
+  <span id="ewrap" style="display:none">
+    <span class="k warn">★電子</span><span id="nele" class="big warn">-</span>
+    <span id="mele" class="k" style="display:block">-</span></span>
+  <span id="bwrap" style="display:none">
+    <span class="k warn">★核への寄り</span><span id="bound" class="big warn">-</span>
+    <span class="k" style="display:block">1＝偶然／小さいほど捕まっている</span></span>
 </header>
 <div id="say"></div>
 <section id="zukan" style="margin:10px 0">
@@ -234,6 +242,17 @@ async function tick(){
   const mi=st.min||0;
   document.getElementById("min").textContent =
     mi>=1440 ? (mi/1440).toFixed(1)+"日" : mi>=120 ? (mi/60).toFixed(1)+"時間" : mi.toFixed(1)+"分";
+  // ★★★電荷のある世界だけ出す
+  if(st.nele!==undefined){
+    document.getElementById("qwrap").style.display="";
+    document.getElementById("ewrap").style.display="";
+    document.getElementById("bwrap").style.display="";
+    document.getElementById("qdrift").textContent=st.qdrift;
+    document.getElementById("nele").textContent=st.nele;
+    document.getElementById("mele").textContent="質量"+st.mele+" 電荷"+st.qele;
+    document.getElementById("bound").textContent=st.bound;
+    document.getElementById("bound").className="big "+(st.bound<0.8?"ok":"warn");
+  }
   // ★★どちらの世界か
   const cb=(s.cfg||{}).coulomb;
   document.getElementById("cb").textContent =

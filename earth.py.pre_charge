@@ -79,40 +79,15 @@ E0 = float(os.environ.get("EARTH_E0", 2.0))          # ★深さ
 S_W = 1.2                                            # ★山の広さ
 
 
-# ── ★★★電荷（2026-09-11）──────────────────────
-#   ★粒が持つ2つ目の量。★符号がある。★★法則は1つも増えない。
-#   ★曲線が B(m) から **B(m,q) の谷** になるだけ。
-#   ★★これは本物の「安定の谷」そのもの（★核図表の Z 対 N）。
-#   ★谷から外れたかたまりは、★電荷を含む割り方で分裂した方が得になる
-#     → ★★**軽くて電荷を持つかけらが出る**。★それが β崩壊であり、出るものが電子。
-#   ★EARTH_CHARGE=0 のときは、★今までと**1ビットも変わらない**。
-Q_ON = os.environ.get("EARTH_CHARGE", "0") == "1"
-Z_FRAC = float(os.environ.get("EARTH_ZFRAC", 0.5))   # ★谷の位置（★q ≒ 0.5·m）
-S_Q = float(os.environ.get("EARTH_SQ", 0.8))         # ★谷の広さ
-# ★★かけらの質量の下限。★ゼロにすると割り算が壊れるので置くだけの数。
-#   ★★「電子の質量」ではない ── ★どれだけ軽いものが出るかは曲線が決める。
-MFRAG_MIN = float(os.environ.get("EARTH_MFRAG", 1e-4))
-# ★★電気の強さ。★重力の GRAV と同じ立場の数（★力の単位を決めるだけ）。
-KQ = float(os.environ.get("EARTH_KQ", 60.0))
-
-
-def binding(m, q=None):
+def binding(m):
     """★★★結合エネルギー。★これ1本で融合も分裂も決まる。
 
     ★B(m)/m が M_PEAK で最大になる山。
     ★★軽い同士の融合は発熱、★重いものの分裂は発熱、★その逆は起きない。
     ★★★僕は「何が安定か」を書いていない。★曲線が決める。
-
-    ★★★q を渡すと、★山は**谷**になる（2026-09-11）。
-    　★谷底は q = Z_FRAC·m。★そこから離れるほど結合が浅くなる。
-    　★広がりを √m に比例させるのは、★重いものほど許容が広いから（★本物もそう）。
     """
     x = np.log(np.maximum(m, 1e-9) / M_PEAK)
-    b = E0 * m * np.exp(-(x * x) / (2.0 * S_W * S_W))
-    if q is None or not Q_ON:
-        return b
-    dq = q - Z_FRAC * m
-    return b * np.exp(-(dq * dq) / (2.0 * S_Q * S_Q * np.maximum(m, 1.0)))
+    return E0 * m * np.exp(-(x * x) / (2.0 * S_W * S_W))
 
 
 # ── ★★★名前 ────────────────────────────────
@@ -157,9 +132,9 @@ EPS_MIN = float(os.environ.get("EARTH_EPSMIN", 0.05))
 EPS_MAX = float(os.environ.get("EARTH_EPSMAX", 1.2))
 
 
-def reactivity(m, q=None):
-    """★0 = 谷の底（不活性） 〜 1 = 谷から遠い（反応する）"""
-    return 1.0 - binding(m, q) / np.maximum(1e-9, E0 * m)
+def reactivity(m):
+    """★0 = 山の上（不活性） 〜 1 = 山から遠い（反応する）"""
+    return 1.0 - binding(m) / np.maximum(1e-9, E0 * m)
 RCUT = 2.5
 GRAV = float(os.environ.get("EARTH_GRAV", 40.0))
 RELAX = 8
@@ -229,19 +204,11 @@ class Earth(object):
         self.pos = self.c + pts[:n] + (jit.take(n * DIM).reshape(n, DIM) - 0.5) * 0.05
         self.vel = (jit.take(n * DIM).reshape(n, DIM) - 0.5) * 1.0
         self.mass = np.ones(n)                    # ★★全部「1」から始まる。★水素だけ
-        # ★★★電荷。★★全部ゼロから始まる（★中性子だけの世界）。
-        #   ★谷底は q = 0.5·m なので、★質量1・電荷0 は**谷から外れている**。
-        #   → ★電荷を吐いた方が得になる。★★僕は電子を1つも置いていない。
-        self.q = np.zeros(n)
-        self.q0 = 0.0
-        self.q_esc = 0.0
         # ★★★名札。★「同じ分子が壊れずに続いているか」を測るのに要る。
         #   ★中身（質量の並び）だけでは、★**別の粒で出来た別の分子**と区別できない。
         self.pid = np.arange(n, dtype=np.int64)
         self.next_pid = int(n)
         self.m3 = np.zeros((G,) * DIM)
-        # ★★★電荷のにじみ。★質量のにじみと**まったく同じ法則**をもう1枚に当てるだけ
-        self.q3 = np.zeros((G,) * DIM)
         self.step_n = 0
         self.secs = 0.0          # ★★★この世界が生きてきた合計の秒数（★区切りをまたぐ）
         self.seen, self.revisits, self.escaped = {}, 0, 0
@@ -253,7 +220,6 @@ class Earth(object):
         self.Ein = self.Eout = 0.0
         # ★★★台帳 ── 質量とエネルギーが、どこへ行ったか
         self.mass0 = float(self.mass.sum())
-        self.q0 = float(self.q.sum())
         # ★★燃料の満タン ＝ 全部が山の質量になったときの結合エネルギー
         self.Ebind_max = float(binding(np.array([M_PEAK]))[0]) * self.mass0 / M_PEAK
         self.mass_esc = 0.0
@@ -261,7 +227,6 @@ class Earth(object):
         # ★★★診断: どの操作でいくら湧いたか
         self.d_move = self.d_tr = self.d_del = 0.0
         self.Wgrav = self._wprev = 0.0
-        self.Wq = self._wqprev = 0.0
         self.reach2 = 36.0
         self.Elj = 0.0
         # ★★★図鑑 ── **これまでに出来たもの**。★分子は数歩で消えるので、
@@ -280,14 +245,8 @@ class Earth(object):
         return len(self.pos)
 
     def eps(self):
-        """★★結びつきの強さ。★★★質量から決まる。★僕は表を書かない。
-
-        ★★★2026-09-11: 電荷があるときは**谷からの外れ方**も効く。
-        　★同じ曲線 B(m,q) を使うだけ。★新しい表は書かない。
-        　★谷から外れている＝結合が浅い＝反応する。★★イオンが反応するのと同じ向き。
-        """
-        e = EPS_MIN + (EPS_MAX - EPS_MIN) * reactivity(self.mass,
-                                                       self.q if Q_ON else None)
+        """★★結びつきの強さ。★★★質量から決まる。★僕は表を書かない。"""
+        e = EPS_MIN + (EPS_MAX - EPS_MIN) * reactivity(self.mass)
         return np.sqrt(e[:, None] * e[None, :])       # ★混ぜ方は標準の相乗平均
 
     def sig(self):
@@ -308,23 +267,8 @@ class Earth(object):
                    for k in range(DIM))
         src = np.zeros((G,) * DIM)
         np.add.at(src, gi, self.mass)
-        srcq = None
-        if Q_ON:
-            srcq = np.zeros((G,) * DIM)
-            np.add.at(srcq, gi, self.q)          # ★★源が電荷になるだけ
         D = 0.9 / (2.0 * DIM)
         for _ in range(RELAX):
-            if Q_ON:
-                lq = -2.0 * DIM * self.q3
-                for ax in range(DIM):
-                    lq = lq + np.roll(self.q3, 1, ax) + np.roll(self.q3, -1, ax)
-                self.q3 = self.q3 + D * (lq + srcq * SRC_K)
-                for ax in range(DIM):
-                    sl = [slice(None)] * DIM
-                    sl[ax] = 0
-                    self.q3[tuple(sl)] = 0.0
-                    sl[ax] = -1
-                    self.q3[tuple(sl)] = 0.0
             lp = -2.0 * DIM * self.m3
             for ax in range(DIM):
                 lp = lp + np.roll(self.m3, 1, ax) + np.roll(self.m3, -1, ax)
@@ -338,7 +282,7 @@ class Earth(object):
                 self.m3[tuple(sl)] = 0.0
                 sl[ax] = -1
                 self.m3[tuple(sl)] = 0.0
-        return gi, np.gradient(self.m3), (np.gradient(self.q3) if Q_ON else None)
+        return gi, np.gradient(self.m3)
 
     # ── ① ポテンシャル ─────────────────────────
     def forces(self):
@@ -348,15 +292,6 @@ class Earth(object):
         sg = self.sig()
         s2 = sg * sg
         cut = r2 < (RCUT * RCUT) * s2
-        # ★★★原子でないものは、化学に参加しない（2026-09-11）。
-        #   ★この世界の物質の単位は**1**（★全部そこから始まった）。
-        #   ★それより軽いかけらは原子ではない。★LJ は原子どうしの法則。
-        #   ★★前に σ∝m^⅓ で「核のスケールと化学のスケールを混ぜた」のと同じ間違い。
-        #   ★実測: 混ぜたままだと、★質量0.014 の加速度が70倍になり
-        #     ★**velocity Verlet が保たない**（★動き −100.8 / 温度 外830）。
-        if Q_ON:
-            _atom = self.mass >= 1.0
-            cut = cut & _atom[:, None] & _atom[None, :]
         # ★★★柔らかい芯（2026-09-11 の訂正）。
         #   ★前は「近すぎたら r を頭打ち」にしていたが、★**力と位置エネルギーが食い違い**、
         #   ★★押し込まれるたびにエネルギーが湧いていた（★実測 +8525）。
@@ -386,7 +321,6 @@ class Earth(object):
         ii, jj = np.nonzero(np.triu(near, 1))
         used = np.zeros(n, bool)
         newp, newv, newm, drop, newid = [], [], [], [], []
-        newq = []
         gained = 0.0
         for a, b in zip(ii, jj):
             a, b = int(a), int(b)
@@ -396,25 +330,15 @@ class Earth(object):
             mu = ma * mb / (ma + mb)
             dv = self.vel[a] - self.vel[b]
             krel = 0.5 * mu * float(dv @ dv)
-            qa, qb = self.q[a], self.q[b]
-            dE = float(binding(np.array([ma + mb]), np.array([qa + qb]))[0]
-                       - binding(np.array([ma]), np.array([qa]))[0]
-                       - binding(np.array([mb]), np.array([qb]))[0])
+            dE = float(binding(np.array([ma + mb]))[0]
+                       - binding(np.array([ma]))[0] - binding(np.array([mb]))[0])
             # ★★★2026-09-11 の訂正: ★前は「損をする融合は起きない」と書いていた。
             #   ★★それが間違い。★**払えるエネルギーがあれば、損をする反応も起きる**。
             #   ★実際の宇宙で鉄より重い元素ができたのは、★**超新星の莫大なエネルギー**で
             #     ★吸熱の融合が無理やり起きたから（r過程）。
             #   ★★★僕のルールが1つ消えて、★**エネルギー保存だけになる**。
             # ★★クーロン障壁 ＋ 吸熱なら足りない分
-            # ★★★2026-09-11: 電荷が世界に在るので、★**代用をやめて本物を使う**。
-            #   ★これまでは電荷が無かったので質量で代用していた（★コメントにそう書いてある）。
-            #   ★★中性どうしには障壁が無い ── ★これは本物の中性子捕獲と同じ。
-            #   ★逆符号なら障壁は負（★引き合う）。★そこは0で止める。
-            if Q_ON:
-                barrier = COULOMB * max(0.0, float(qa * qb)) / (
-                    ma ** (1.0/3.0) + mb ** (1.0/3.0))
-            else:
-                barrier = COULOMB * (ma * mb) / (ma ** (1.0/3.0) + mb ** (1.0/3.0))
+            barrier = COULOMB * (ma * mb) / (ma ** (1.0/3.0) + mb ** (1.0/3.0))
             need = barrier + max(0.0, -dE)
             if krel < need:
                 continue
@@ -434,7 +358,6 @@ class Earth(object):
             #   ★エネルギー保存: krel − B(a) − B(b) = 出る分 − B(m)  →  出る分 = krel + dE
             self.release.append((p.copy(), krel + dE))
             newp.append(p); newv.append(v); newm.append(m)
-            newq.append(qa + qb)                 # ★★電荷は足されるだけ（★保存）
             newid.append(self.new_pid())
             used[a] = used[b] = True
             drop += [a, b]
@@ -444,13 +367,7 @@ class Earth(object):
                 self.nfuse_endo += 1
 
         # ★★分裂: 重いものは、ときどき割れる。★★**いつ割れるかはジッタが決める**
-        if Q_ON:
-            # ★★★谷から外れているものは、★重さに関係なく候補（2026-09-11）。
-            #   ★得かどうかは曲線が決める。★僕は「どれが崩壊するか」を書かない。
-            heavy = np.nonzero((self.mass > M_PEAK * 1.05)
-                               | (np.abs(self.q - Z_FRAC * self.mass) > 1e-9))[0]
-        else:
-            heavy = np.nonzero(self.mass > M_PEAK * 1.05)[0]  # ★山を超えたら候補
+        heavy = np.nonzero(self.mass > M_PEAK * 1.05)[0]   # ★山を少しでも超えたら候補
         if len(heavy):
             roll = self.jit.take(len(heavy))
             for idx, rr in zip(heavy, roll):
@@ -458,34 +375,21 @@ class Earth(object):
                 if used[idx] or rr > FISSION_P * self.mass[idx]:
                     continue
                 m = self.mass[idx]
-                Qp = float(self.q[idx])
                 # ★★割り方をいくつか試して、★一番得をする割り方を選ぶ。
                 #   ★前は1通りだけ試して、損なら諦めていた（★実測: 分裂0回）
-                # ★★★電荷を入れると、★**とても軽いかけら**も候補になる（2026-09-11）。
-                #   ★質量の下限1.0 は「核どうしの分裂」を想定した値だった。
-                #   ★★電荷だけを持ち出すかけらは、★それよりずっと軽くていい。
-                #   ★どれだけ軽いかは**曲線が決める**。★僕は電子の質量を書かない。
-                FA = ((0.5, 0.42, 0.35, 0.28, 0.2, 0.12)
-                      + ((0.02, 0.004, 0.001) if Q_ON else ()))
-                DQ = (0.0,) if not Q_ON else (0.0, 0.25, -0.25, 0.5, -0.5,
-                                              1.0, -1.0, 2.0, -2.0)
-                # ★★候補を全部いっぺんに評価する（★81通りを1回の numpy で）
-                fa = np.array(FA)[:, None]
-                dq = np.array(DQ)[None, :]
-                M1 = m * fa + 0.0 * dq
-                M2 = m * (1.0 - fa) + 0.0 * dq
-                QA = Qp * fa + dq
-                QB = Qp - QA
-                floor = MFRAG_MIN if Q_ON else 1.0
-                E = (binding(M1, QA) + binding(M2, QB)
-                     - float(binding(np.array([m]), np.array([Qp]))[0]))
-                E = np.where(np.minimum(M1, M2) < floor, -np.inf, E)
-                k = int(np.argmax(E))
-                if not np.isfinite(E.flat[k]) or E.flat[k] <= 0.0:
+                best, bdE = None, 0.0
+                for fa in (0.5, 0.42, 0.35, 0.28, 0.2, 0.12):
+                    q1, q2 = m * fa, m * (1.0 - fa)
+                    if min(q1, q2) < 1.0:
+                        continue
+                    e = float(binding(np.array([q1]))[0]
+                              + binding(np.array([q2]))[0]
+                              - binding(np.array([m]))[0])
+                    if e > bdE:
+                        best, bdE = (q1, q2), e
+                if best is None:
                     continue
-                bdE = float(E.flat[k])
-                m1, m2 = float(M1.flat[k]), float(M2.flat[k])
-                qa_, qb_ = float(QA.flat[k]), float(QB.flat[k])
+                m1, m2 = best
                 dE = bdE
                 u = self.jit.take(DIM) - 0.5
                 u /= (np.linalg.norm(u) + 1e-9)
@@ -493,12 +397,10 @@ class Earth(object):
                 newp.append(self.pos[idx] + u * 0.6)
                 newv.append(self.vel[idx].copy())
                 newm.append(m1)
-                newq.append(qa_)
                 newid.append(self.new_pid())
                 newp.append(self.pos[idx] - u * 0.6)
                 newv.append(self.vel[idx].copy())
                 newm.append(m2)
-                newq.append(qb_)
                 newid.append(self.new_pid())
                 self.release.append((self.pos[idx].copy(), dE))
                 used[idx] = True
@@ -514,9 +416,7 @@ class Earth(object):
             self.mass = np.concatenate([self.mass[keep], np.array(newm)])
             self.pid = np.concatenate([self.pid[keep],
                                        np.array(newid, dtype=np.int64)])
-            self.q = np.concatenate([self.q[keep], np.array(newq)])
             assert len(self.pid) == len(self.mass), '名札の数が合わない'
-            assert len(self.q) == len(self.mass), '電荷の数が合わない'
         self.heat = gained
         return gained
 
@@ -563,14 +463,9 @@ class Earth(object):
     # ── ★★★エネルギーの台帳（★変換が本体）─────────────
     def ledger(self):
         """★どのエネルギーが、いまどこに在るか。★合計が保存していれば実装が正しい。"""
-        Ebind = float(binding(self.mass, self.q).sum())   # ★質量に残っている燃料
+        Ebind = float(binding(self.mass).sum())      # ★質量の中に残っている燃料
         Ekin = 0.5 * float((self.mass * (self.vel * self.vel).sum(1)).sum())
         return Ebind, Ekin
-
-    def Wq_step(self):
-        w = self.Wq - self._wqprev
-        self._wqprev = self.Wq
-        return w
 
     def Wgrav_step(self):
         w = self.Wgrav - self._wprev
@@ -585,14 +480,9 @@ class Earth(object):
         self.step_n += 1
         f, r2, cut, s2 = self.forces()
         lj0 = self.Elj
-        gi, grads, qgr = self.field()
+        gi, grads = self.field()
         for ax in range(DIM):
             f[:, ax] += GRAV * grads[ax][gi]
-        # ★★★電気 ── ★同符号は反発（★だから重力と符号が逆）。★加速度は質量で割る
-        if Q_ON:
-            qk = KQ * self.q / np.maximum(self.mass, 1e-9)
-            for ax in range(DIM):
-                f[:, ax] -= qk * qgr[ax][gi]
 
         # ── ★★★① 動き ── velocity Verlet（シンプレクティック法）
         #   ★前はオイラー法で、★**エネルギーが湧いていた**（★実測: +2684）。
@@ -610,11 +500,6 @@ class Earth(object):
         gacc = np.zeros_like(f1)
         for ax in range(DIM):
             gacc[:, ax] = GRAV * grads[ax][gi1]
-        qacc = np.zeros_like(f1)
-        if Q_ON:
-            qk = KQ * self.q / np.maximum(self.mass, 1e-9)
-            for ax in range(DIM):
-                qacc[:, ax] = -qk * qgr[ax][gi1]
         # ★★★重力がした仕事を数える（2026-09-11）。
         #   ★前はこれを台帳に入れておらず、★★**湧いているように見えていた**（実測 +2991）。
         #   ★実際は「潰れると熱くなる」という**本物の物理**だった。
@@ -622,29 +507,20 @@ class Earth(object):
         for ax in range(DIM):
             gold[:, ax] = GRAV * grads[ax][gi]
         self.Wgrav += float((self.mass[:, None] * 0.5 * (gold + gacc) * dx).sum())
-        # ★★★電気がした仕事。★重力のときに入れ忘れて +2991 湧いて見えた。同じ轍は踏まない
-        if Q_ON:
-            qold = np.zeros_like(f)
-            qk = KQ * self.q / np.maximum(self.mass, 1e-9)
-            for ax in range(DIM):
-                qold[:, ax] = -qk * qgr[ax][gi]
-            self.Wq += float((self.mass[:, None] * 0.5 * (qold + qacc) * dx).sum())
-            f1 = f1 + qacc
         f1 = f1 + gacc
         self.vel = self.vel + 0.5 * f1 * DT         # ★残り半分を蹴る
         k1 = self._ke()
-        self.d_move += ((k1 - k0) + (self.Elj - lj0)
-                        - self.Wgrav_step() - self.Wq_step())
+        self.d_move += (k1 - k0) + (self.Elj - lj0) - self.Wgrav_step()
 
         # ── ★② 変換 ─────────────────────────
         k0 = self._ke()
-        b0 = float(binding(self.mass, self.q).sum())
+        b0 = float(binding(self.mass).sum())
         lj_before = self.Elj                      # ★★変換の前の LJ 位置エネルギー
         self.transform(r2, s2)
         self.forces()                             # ★★σ が変わったので測り直す
         lj_after = self.Elj
         k1 = self._ke()
-        b1 = float(binding(self.mass, self.q).sum())
+        b1 = float(binding(self.mass).sum())
         # ★★★σ は質量で変わる（σ ∝ m^⅓）。★融合すると**同じ距離でも LJ が飛ぶ**。
         #   ★前はその飛びを帳簿に入れておらず、★**それが最後の湧き口だった**（実測 +19862）。
         #   → ★飛んだぶんを、★**出る熱から差し引く**（★エネルギーはそこから来ている）。
@@ -690,12 +566,10 @@ class Earth(object):
             self.mass_esc += float(self.mass[~keep].sum())
             self.Eout += 0.5 * float((self.mass[~keep]
                                       * (self.vel[~keep] ** 2).sum(1)).sum())
-            self.Eout -= float(binding(self.mass[~keep], self.q[~keep]).sum())
-            self.q_esc += float(self.q[~keep].sum())
+            self.Eout -= float(binding(self.mass[~keep]).sum())
             self.pos, self.vel, self.mass = (self.pos[keep], self.vel[keep],
                                              self.mass[keep])
             self.pid = self.pid[keep]
-            self.q = self.q[keep]
         self._r = r
         return T
 
@@ -712,9 +586,6 @@ class Earth(object):
         sg = self.sig()
         s2 = sg * sg
         cut = r2 < (RCUT * RCUT) * s2
-        if Q_ON:
-            _atom = self.mass >= 1.0
-            cut = cut & _atom[:, None] & _atom[None, :]
         r = np.sqrt(np.where(np.isfinite(r2), r2, 1.0))
         rmin = np.sqrt(0.70 * s2)
         rr = np.where(r < rmin, rmin, r)
@@ -759,58 +630,25 @@ class Earth(object):
         v2 = (self.vel * self.vel).sum(1)
 
         # ── ★★★エネルギーの台帳（★変換が本体）────────────
-        Ebind = float(binding(m, self.q).sum())      # ★質量の中に残っている燃料
+        Ebind = float(binding(m).sum())              # ★質量の中に残っている燃料
         Ekin = 0.5 * float((m * v2).sum())           # ★運動
         # ★★★台帳の全部（2026-09-11 に2度直した）:
         #   ★結合エネルギーは**負の位置エネルギー**（符号）
         #   ★★**LJ の位置エネルギー**と**重力がした仕事**が抜けていた
-        Etot = Ekin + self.Elj + self.Eout - Ebind - self.Wgrav - self.Wq
+        Etot = Ekin + self.Elj + self.Eout - Ebind - self.Wgrav
         if self.E0tot is None:
             self.E0tot = Etot
         # ★★★ずれの割り方（2026-09-11 の訂正）。
         #   ★前は**初期値**で割っていた。★でも初期値は −312 しかなく（★全部が質量1）、
         #   ★★**ゼロに近い数で割っていた**ので、★絶対値 +318 が「+102%」に見えていた。
         #   ★★★正しくは**流れているエネルギーの大きさ**で割る。
-        scale = (abs(Ekin) + abs(self.Elj) + abs(self.Eout) + abs(Ebind)
-                 + abs(self.Wgrav) + abs(self.Wq))
+        scale = abs(Ekin) + abs(self.Elj) + abs(self.Eout) + abs(Ebind) + abs(self.Wgrav)
         drift = (Etot - self.E0tot) / max(1.0, scale)
         drift_abs = Etot - self.E0tot
 
         # ── ★質量の台帳 ────────────────────────
         mnow = float(m.sum())
         mdrift = (mnow + self.mass_esc - self.mass0) / max(1e-9, self.mass0)
-
-        # ── ★★★電荷の台帳（2026-09-11）── 3本目の保存則 ────────
-        #   ★はじめは全部ゼロ。★分裂で ＋ と − に分かれても、★合計は動いてはいけない。
-        #   ★合計がゼロから離れたら、★そこに嘘がある。
-        qnow = float(self.q.sum())
-        qdrift = qnow + self.q_esc - self.q0
-        qpos = float(self.q[self.q > 0].sum())
-        # ★★★「電子」＝ 軽くて負のもの。★僕は電子を定義していない。
-        #   ★★この2つの条件はどちらも曲線が作った結果。★名前を付けているだけ。
-        light = m < 0.5
-        nele = int((light & (self.q < 0)).sum())
-        # ★★★電子は核に捕まっているか（2026-09-11）。
-        #   ★★でたらめに置いた場合と比べる。★1より小さければ**寄っている**。
-        #   ★これが無いと「クーロン力を入れた」だけで何も言えない。
-        bound_r = 1.0
-        pos_at = self.pos[(m >= 1.0) & (self.q > 0)]
-        if nele and len(pos_at) >= 2:
-            pe = self.pos[light & (self.q < 0)]
-            dd = np.sqrt(((pe[:, None, :] - pos_at[None, :, :]) ** 2).sum(-1))
-            near = float(dd.min(1).mean())
-            # ★★対照: 同じ雲の中にでたらめに置いた点から、最も近い正の原子まで
-            rr_ = np.sqrt(((pos_at - self.c) ** 2).sum(1))
-            R_ = max(1e-6, float(rr_.max()))
-            u = self.jit.take(nele * DIM).reshape(nele, DIM) - 0.5
-            u = u / np.maximum(1e-9, np.sqrt((u * u).sum(1))[:, None])
-            rad_ = R_ * (self.jit.take(nele) ** (1.0 / DIM))[:, None]
-            pr = self.c + u * rad_
-            d2 = np.sqrt(((pr[:, None, :] - pos_at[None, :, :]) ** 2).sum(-1))
-            ctl = float(d2.min(1).mean())
-            bound_r = near / max(1e-9, ctl)
-        m_ele = float(m[light & (self.q < 0)].mean()) if nele else 0.0
-        q_ele = float(self.q[light & (self.q < 0)].mean()) if nele else 0.0
 
         # ── ★種類 ─────────────────────────────
         mr = np.round(m, 2)
@@ -912,9 +750,6 @@ class Earth(object):
         jh, ju = self.jit.health()
         return dict(
             atoms=atoms, mols=mols, mollife=mol_life, molbest=mol_best,
-            qdrift=round(qdrift, 6), qpos=round(qpos, 2),
-            nele=nele, mele=round(m_ele, 5), qele=round(q_ele, 3),
-            bound=round(bound_r, 3),
             step=self.step_n, n=self.n, T=round(T, 3),
             mol=len(msz), molmax=(msz[0] if msz else 0), molkinds=mkinds,
             bonds=nb,
@@ -947,7 +782,6 @@ class Earth(object):
             # ★★★どの操作で湧いたか
             dmove=round(self.d_move, 1), dtr=round(self.d_tr, 1),
             ddel=round(self.d_del, 1), Wg=round(self.Wgrav, 1),
-            Wq=round(self.Wq, 1),
             Elj=round(self.Elj, 1))
 
     # ── ★★★続きのための紙 ────────────────────────
@@ -955,7 +789,6 @@ class Earth(object):
     #   ★**台帳**（湧いた分・逃げた分・外へ出た分）と**指紋**（再訪の記憶）。
     #   ★ジッタは保存しない ── ★崩壊の「いつ」は毎回あたらしく実行時間から取る。
     SCALARS = ("step_n", "secs", "revisits", "escaped", "nfuse", "nfiss", "nfuse_endo",
-               "q0", "q_esc", "Wq", "_wqprev",
                "heat", "Ein", "Eout", "mass0", "Ebind_max", "mass_esc",
                "E0tot", "d_move", "d_tr", "d_del", "Wgrav", "_wprev",
                "reach2", "Elj")
@@ -969,7 +802,7 @@ class Earth(object):
         np.savez_compressed(
             path + ".tmp.npz",
             pos=self.pos, vel=self.vel, mass=self.mass, m3=self.m3,
-            pid=self.pid, next_pid=np.array([self.next_pid]), q=self.q,
+            pid=self.pid, next_pid=np.array([self.next_pid]),
             trail=np.array(self.trail, dtype=np.int64),
             seen_k=np.array(list(self.seen.keys()), dtype=np.int64),
             seen_v=np.array(list(self.seen.values()), dtype=np.int64),
@@ -999,7 +832,6 @@ class Earth(object):
         z = np.load(path, allow_pickle=False)
         self.pos, self.vel = z["pos"], z["vel"]
         self.mass, self.m3 = z["mass"], z["m3"]
-        self.q = z["q"] if "q" in z.files else np.zeros(len(self.mass))
         if "pid" in z.files:
             self.pid = z["pid"]
             self.next_pid = int(z["next_pid"][0])
@@ -1081,7 +913,6 @@ def main():
                   "ずれ%+.3f%%(絶対%+.0f) | 質量%6.0f 逃%5.0f ずれ%+.4f%% | ★種類%3d 多様%.2f "
                   "最大%6.1f 中央%5.1f | ★層%d 質量段%d | 融合%4d(吸%3d) 分裂%4d | "
                   "粒%4d 逃%3d 再訪%2d 新しさ%.2f | ★分子%3d(最大%3d 種類%3d 結合%4d いま最古%4d歩 記録%5d歩)"
-                  " | ★電荷ずれ%+.4f ＋%6.1f 電子%4d(質量%.4f 電荷%+.2f 核への寄り%.2f)"
                   % (st["step"], st["T"], st["Tin"], st["Tout"], st["grad"],
                      st["fuel"], st["Ekin"], st["Eout"], st["drift"], st["dabs"],
                      st["mass"], st["mesc"], st["mdrift"], st["kinds"],
@@ -1089,13 +920,11 @@ def main():
                      st["mscales"], st["fuse"], st["endo"], st["fiss"],
                      st["n"], st["esc"], st["revisit"], st["newness"],
                      st["mol"], st["molmax"], st["molkinds"], st["bonds"],
-                     st["mollife"], st["molbest"],
-                     st["qdrift"], st["qpos"], st["nele"], st["mele"], st["qele"],
-                     st["bound"]),
+                     st["mollife"], st["molbest"]),
                   flush=True)
             print("      ★★湧いた内訳: 動き%+9.1f 変換%+7.1f 配る%+9.1f | "
-                  "重力の仕事%+10.1f  電気の仕事%+10.1f  LJ位置%+9.1f"
-                  % (st["dmove"], st["dtr"], st["ddel"], st["Wg"], st["Wq"], st["Elj"]),
+                  "重力の仕事%+10.1f  LJ位置%+9.1f"
+                  % (st["dmove"], st["dtr"], st["ddel"], st["Wg"], st["Elj"]),
                   flush=True)
         if SAVE_EVERY and w.step_n % SAVE_EVERY == 0:
             w.save(STATE_PATH, hist)
