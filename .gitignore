@@ -6,3 +6,4 @@ history*.json.tmp
 run.log
 __pycache__/
 *.bak
+*.pre_*
