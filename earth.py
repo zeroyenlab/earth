@@ -809,6 +809,29 @@ class Earth(object):
             d2 = np.sqrt(((pr[:, None, :] - pos_at[None, :, :]) ** 2).sum(-1))
             ctl = float(d2.min(1).mean())
             bound_r = near / max(1e-9, ctl)
+
+        # ★★★同位体（2026-09-11）。★電荷が元素の身元、★質量が同位体。
+        #   ★電荷が在る前は「質量＝種類」でよかったが、★いまは本物と同じく電荷が身元。
+        #   ★★正直に: この世界の電荷は**飛び飛びではない**。★整数に丸めて数えている。
+        #   ★どれだけ整数に寄っているかも一緒に出す（★でたらめなら 20%）。
+        elems = []
+        nint = 0.0
+        if Q_ON:
+            sel = (m >= 1.0) & (self.q > 0)
+            if sel.any():
+                qa2, ma2 = self.q[sel], m[sel]
+                nint = float(np.mean(np.abs(qa2 - np.round(qa2)) < 0.1))
+                for k in sorted(set(np.round(qa2).astype(int).tolist())):
+                    pick = np.round(qa2).astype(int) == k
+                    mm2 = np.round(ma2[pick], 1)
+                    elems.append(dict(
+                        q=int(k), n=int(pick.sum()),
+                        iso=int(len(set(mm2.tolist()))),
+                        med=round(float(np.median(mm2)), 1),
+                        want=round(k / max(1e-9, Z_FRAC), 1),   # ★谷の予想
+                        lo=round(float(mm2.min()), 1),
+                        hi=round(float(mm2.max()), 1)))
+                elems = elems[:20]
         m_ele = float(m[light & (self.q < 0)].mean()) if nele else 0.0
         q_ele = float(self.q[light & (self.q < 0)].mean()) if nele else 0.0
 
@@ -914,7 +937,7 @@ class Earth(object):
             atoms=atoms, mols=mols, mollife=mol_life, molbest=mol_best,
             qdrift=round(qdrift, 6), qpos=round(qpos, 2),
             nele=nele, mele=round(m_ele, 5), qele=round(q_ele, 3),
-            bound=round(bound_r, 3),
+            bound=round(bound_r, 3), elems=elems, qint=round(nint, 3),
             step=self.step_n, n=self.n, T=round(T, 3),
             mol=len(msz), molmax=(msz[0] if msz else 0), molkinds=mkinds,
             bonds=nb,

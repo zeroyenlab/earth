@@ -79,6 +79,11 @@ td:last-child{text-align:right;font-weight:600}
       ★★人間の周期表とは別もの ── ★向こうは陽子の数で並ぶ。★ここは質量が種類。
       ★下の数字＝いまある数（0＝もう無いが、出たことはある）</small></div>
   <div id="atoms" class="chips"></div>
+  <div class="zk" id="isohead" style="display:none"><b>元素と同位体</b>
+    <small>　★電荷が元素の身元（本物の陽子数と同じ役目）、★質量が同位体。
+      ★「谷の予想」は曲線が言う質量。★★この世界の電荷は飛び飛びではないので、
+      ★整数に丸めて数えている</small></div>
+  <div id="isos" class="chips"></div>
   <div class="zk"><b>分子</b>
     <small>　★くっついて離れない塊。★Oct₂＝質量8が2つ。★「・」が原子の区切り。
       ★★**最長◯歩**＝その中身が続けてくっついていた歩数。★ここが伸びたら本物の分子</small></div>
@@ -252,6 +257,19 @@ async function tick(){
     document.getElementById("mele").textContent="質量"+st.mele+" 電荷"+st.qele;
     document.getElementById("bound").textContent=st.bound;
     document.getElementById("bound").className="big "+(st.bound<0.8?"ok":"warn");
+  }
+  // ★★★元素と同位体
+  const EL=st.elems||[];
+  if(EL.length){
+    document.getElementById("isohead").style.display="";
+    document.getElementById("isos").innerHTML = EL.map(e=>{
+      const ok = Math.abs(e.med-e.want) < 0.6;
+      const col = ok ? "#7FB77E" : "#C9A227";
+      return '<span class="chip" style="border-color:'+col+';color:'+col+'">'
+        + '<b>電荷'+e.q+'</b>'+e.n+'個・同位体'+e.iso+'種<br>'
+        + '<i>質量 '+e.lo+'〜'+e.hi+' ／ 中央'+e.med+'（谷の予想'+e.want+'）</i></span>';
+    }).join("") + '<span class="chip"><i>整数に寄っている割合<br><b>'
+      + Math.round((st.qint||0)*100) + '%</b>（でたらめなら20%）</i></span>';
   }
   // ★★どちらの世界か
   const cb=(s.cfg||{}).coulomb;
