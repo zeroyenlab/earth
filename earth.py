@@ -117,7 +117,8 @@ def formula(f):
         out.append(sym(f[i]) + ("" if k == 1 else
                                 "".join(_SUB[int(c)] for c in str(k))))
         i = j
-    return "".join(out)
+    # ★★「・」で区切る。★UnNilUnUn だと「10と11」か読めない（2026-09-11）
+    return "・".join(out)
 
 
 SIG0 = 1.0
@@ -203,6 +204,10 @@ class Earth(object):
         self.pos = self.c + pts[:n] + (jit.take(n * DIM).reshape(n, DIM) - 0.5) * 0.05
         self.vel = (jit.take(n * DIM).reshape(n, DIM) - 0.5) * 1.0
         self.mass = np.ones(n)                    # ★★全部「1」から始まる。★水素だけ
+        # ★★★名札。★「同じ分子が壊れずに続いているか」を測るのに要る。
+        #   ★中身（質量の並び）だけでは、★**別の粒で出来た別の分子**と区別できない。
+        self.pid = np.arange(n, dtype=np.int64)
+        self.next_pid = int(n)
         self.m3 = np.zeros((G,) * DIM)
         self.step_n = 0
         self.seen, self.revisits, self.escaped = {}, 0, 0
@@ -227,7 +232,12 @@ class Earth(object):
         #   ★「いま」だけ見せると、開いた瞬間によっては**何も無い**ことになる。
         #   ★★出た瞬間を覚えておく。★消えても、出たことは残る。
         self.zukan_a = {}     # ★質量 → [はじめて出た歩, 見た回数]
-        self.zukan_m = {}     # ★中身 → [はじめて出た歩, 見た回数]
+        self.zukan_m = {}     # ★中身 → [はじめて出た歩, 見た回数, 最長何歩続いたか]
+        self.mol_run = {}     # ★★★いま何歩続いているか（★これが「消えない」の本体）
+
+    def new_pid(self):
+        self.next_pid += 1
+        return self.next_pid - 1
 
     @property
     def n(self):
@@ -309,7 +319,7 @@ class Earth(object):
         near = r2 < (1.35 ** 2) * s2
         ii, jj = np.nonzero(np.triu(near, 1))
         used = np.zeros(n, bool)
-        newp, newv, newm, drop = [], [], [], []
+        newp, newv, newm, drop, newid = [], [], [], [], []
         gained = 0.0
         for a, b in zip(ii, jj):
             a, b = int(a), int(b)
@@ -347,6 +357,7 @@ class Earth(object):
             #   ★エネルギー保存: krel − B(a) − B(b) = 出る分 − B(m)  →  出る分 = krel + dE
             self.release.append((p.copy(), krel + dE))
             newp.append(p); newv.append(v); newm.append(m)
+            newid.append(self.new_pid())
             used[a] = used[b] = True
             drop += [a, b]
             gained += dE
@@ -385,9 +396,11 @@ class Earth(object):
                 newp.append(self.pos[idx] + u * 0.6)
                 newv.append(self.vel[idx].copy())
                 newm.append(m1)
+                newid.append(self.new_pid())
                 newp.append(self.pos[idx] - u * 0.6)
                 newv.append(self.vel[idx].copy())
                 newm.append(m2)
+                newid.append(self.new_pid())
                 self.release.append((self.pos[idx].copy(), dE))
                 used[idx] = True
                 drop.append(idx)
@@ -400,6 +413,9 @@ class Earth(object):
             self.pos = np.concatenate([self.pos[keep], np.array(newp)])
             self.vel = np.concatenate([self.vel[keep], np.array(newv)])
             self.mass = np.concatenate([self.mass[keep], np.array(newm)])
+            self.pid = np.concatenate([self.pid[keep],
+                                       np.array(newid, dtype=np.int64)])
+            assert len(self.pid) == len(self.mass), '名札の数が合わない'
         self.heat = gained
         return gained
 
@@ -552,6 +568,7 @@ class Earth(object):
             self.Eout -= float(binding(self.mass[~keep]).sum())
             self.pos, self.vel, self.mass = (self.pos[keep], self.vel[keep],
                                              self.mass[keep])
+            self.pid = self.pid[keep]
         self._r = r
         return T
 
@@ -593,7 +610,7 @@ class Earth(object):
         grp = {}
         for i in range(n):
             grp.setdefault(find(i), []).append(i)
-        sizes, comp = [], {}
+        sizes, comp, group = [], {}, []
         for _root, mem in grp.items():
             if len(mem) < 2:
                 continue
@@ -601,8 +618,10 @@ class Earth(object):
             # ★★中身そのもの（★質量を並べたもの）。★これが「分子式」にあたる
             f = tuple(sorted(int(round(float(self.mass[i]))) for i in mem))
             comp[f] = comp.get(f, 0) + 1
+            # ★★★名札の組。★これが同じなら「同じ分子」
+            group.append((f, frozenset(int(self.pid[i]) for i in mem)))
         sizes.sort(reverse=True)
-        return sizes, len(comp), len(ii), comp
+        return sizes, len(comp), len(ii), comp, group
 
     def stats(self, T):
         m = self.mass
@@ -677,7 +696,7 @@ class Earth(object):
             self.seen[hs] = self.step_n
         newness = len(self.seen) / max(1, self.step_n / 5.0)   # ★新しい並びの割合
 
-        msz, mkinds, nb, comp = self.molecules()
+        msz, mkinds, nb, comp, group = self.molecules()
 
         # ── ★★★図鑑 ── 何ができたか、そのまま並べる ────────────
         #   ★原子の名前は付けない。★**質量そのものが種類**（★人間の周期表は書いていない）。
@@ -688,23 +707,48 @@ class Earth(object):
         now_a = {int(uu[k]): int(cc[k]) for k in range(len(uu))}
         for k in range(len(uu)):
             self.zukan_a.setdefault(int(uu[k]), [self.step_n, 0])[1] += 1
+        # ★★★分子の寿命 ── **同じ名札の組**が続けて束縛されている歩数。
+        #   ★2026-09-11 の訂正: 前は「同じ中身」で数えていて、
+        #   ★★よく出る組み合わせはカウントが繋がり、★嘘の記録が出ていた。
+        run = {}
+        for f, pset in group:
+            z = self.zukan_m.setdefault(f, [self.step_n, 0, 0])
+            while len(z) < 3:
+                z.append(0)
+            run[pset] = self.mol_run.get(pset, 0) + 5     # ★stats は5歩ごと
+            if run[pset] > z[2]:
+                z[2] = run[pset]
         for f in comp:
-            self.zukan_m.setdefault(f, [self.step_n, 0])[1] += 1
+            self.zukan_m[f][1] += 1
+        self.mol_run = run
+        mol_life = max(list(run.values()) + [0])          # ★いま生きている古株
+        mol_best = max([v[2] for v in self.zukan_m.values()] or [0])
 
         atoms = []
         for mm_ in sorted(self.zukan_a):
             r_ = float(reactivity(np.array([float(mm_)]))[0])
             atoms.append(dict(m=mm_, name=sym(mm_), n=now_a.get(mm_, 0),
                               react=round(r_, 2), first=self.zukan_a[mm_][0]))
-        # ★★大きい分子を上に。★同じ大きさならよく出るものを上に
-        mk = sorted(self.zukan_m.items(),
-                    key=lambda kv: (-len(kv[0]), -kv[1][1]))[:40]
+        # ★★★並べ方（2026-09-11 の訂正）。
+        #   ★前は「大きい順」だけだった。★そのせいで**一番長生きした分子が出ない**
+        #     （★実測: 最長1160歩と出ているのに、並んでいる分子は全部0歩）。
+        #   ★★長生き順 → 大きい順 の順に混ぜる。
+        _life = lambda kv: (kv[1][2] if len(kv[1]) > 2 else 0)
+        by_life = sorted(self.zukan_m.items(), key=lambda kv: -_life(kv))[:20]
+        by_size = sorted(self.zukan_m.items(),
+                         key=lambda kv: (-len(kv[0]), -kv[1][1]))[:20]
+        mk, _got = [], set()
+        for kv in by_life + by_size:
+            if kv[0] in _got:
+                continue
+            _got.add(kv[0])
+            mk.append(kv)
         mols = [dict(f=formula(f), size=len(f), n=int(comp.get(f, 0)),
-                     mass=int(sum(f)), times=int(v[1]), first=int(v[0]))
-                for f, v in mk]
+                     mass=int(sum(f)), times=int(v[1]), first=int(v[0]),
+                     life=int(v[2] if len(v) > 2 else 0)) for f, v in mk]
         jh, ju = self.jit.health()
         return dict(
-            atoms=atoms, mols=mols,
+            atoms=atoms, mols=mols, mollife=mol_life, molbest=mol_best,
             step=self.step_n, n=self.n, T=round(T, 3),
             mol=len(msz), molmax=(msz[0] if msz else 0), molkinds=mkinds,
             bonds=nb,
@@ -757,6 +801,7 @@ class Earth(object):
         np.savez_compressed(
             path + ".tmp.npz",
             pos=self.pos, vel=self.vel, mass=self.mass, m3=self.m3,
+            pid=self.pid, next_pid=np.array([self.next_pid]),
             trail=np.array(self.trail, dtype=np.int64),
             seen_k=np.array(list(self.seen.keys()), dtype=np.int64),
             seen_v=np.array(list(self.seen.values()), dtype=np.int64),
@@ -765,7 +810,8 @@ class Earth(object):
             # ★★★図鑑も持ち越す。★これが無いと、続きのたびに**出来たものを忘れる**
             zk_a=np.array(["%d:%d:%d" % (k, w[0], w[1])
                            for k, w in self.zukan_a.items()]),
-            zk_m=np.array(["%s:%d:%d" % ("+".join(str(x) for x in k), w[0], w[1])
+            zk_m=np.array(["%s:%d:%d:%d" % ("+".join(str(x) for x in k),
+                                            w[0], w[1], w[2] if len(w) > 2 else 0)
                            for k, w in self.zukan_m.items()]))
         os.replace(path + ".tmp.npz", path)
         # ★★★画面が /state.json から読むのと**まったく同じ形**で置く。
@@ -785,6 +831,12 @@ class Earth(object):
         z = np.load(path, allow_pickle=False)
         self.pos, self.vel = z["pos"], z["vel"]
         self.mass, self.m3 = z["mass"], z["m3"]
+        if "pid" in z.files:
+            self.pid = z["pid"]
+            self.next_pid = int(z["next_pid"][0])
+        else:                                  # ★名札の無い古い紙
+            self.pid = np.arange(len(self.mass), dtype=np.int64)
+            self.next_pid = len(self.mass)
         self.trail = [int(x) for x in z["trail"]]
         self.seen = {int(k): int(v) for k, v in zip(z["seen_k"], z["seen_v"])}
         # ★★名前で戻す。★項目が増えても古い紙が読める
@@ -801,9 +853,11 @@ class Earth(object):
         for t in (z["zk_a"] if "zk_a" in z.files else []):
             a, b, c = str(t).split(":")
             self.zukan_a[int(a)] = [int(b), int(c)]
+        self.mol_run = {}
         for t in (z["zk_m"] if "zk_m" in z.files else []):
-            a, b, c = str(t).split(":")
-            self.zukan_m[tuple(int(x) for x in a.split("+"))] = [int(b), int(c)]
+            q = str(t).split(":")
+            self.zukan_m[tuple(int(x) for x in q[0].split("+"))] = [
+                int(q[1]), int(q[2]), int(q[3]) if len(q) > 3 else 0]
         # ★★グラフの過去も戻す。★これが無いと、続きのたびに**線が消える**
         if hist is not None and os.path.exists(HIST_PATH):
             try:
@@ -855,14 +909,15 @@ def main():
             print("%5d T%.3f 中%.2f/外%.2f 勾配%.1f | 燃料%5.1f%% 運動%7.0f 外へ%8.0f "
                   "ずれ%+.3f%%(絶対%+.0f) | 質量%6.0f 逃%5.0f ずれ%+.4f%% | ★種類%3d 多様%.2f "
                   "最大%6.1f 中央%5.1f | ★層%d 質量段%d | 融合%4d(吸%3d) 分裂%4d | "
-                  "粒%4d 逃%3d 再訪%2d 新しさ%.2f | ★分子%3d(最大%3d 種類%3d 結合%4d)"
+                  "粒%4d 逃%3d 再訪%2d 新しさ%.2f | ★分子%3d(最大%3d 種類%3d 結合%4d いま最古%4d歩 記録%5d歩)"
                   % (st["step"], st["T"], st["Tin"], st["Tout"], st["grad"],
                      st["fuel"], st["Ekin"], st["Eout"], st["drift"], st["dabs"],
                      st["mass"], st["mesc"], st["mdrift"], st["kinds"],
                      st["shannon"], st["mmax"], st["mmed"], st["layers"],
                      st["mscales"], st["fuse"], st["endo"], st["fiss"],
                      st["n"], st["esc"], st["revisit"], st["newness"],
-                     st["mol"], st["molmax"], st["molkinds"], st["bonds"]),
+                     st["mol"], st["molmax"], st["molkinds"], st["bonds"],
+                     st["mollife"], st["molbest"]),
                   flush=True)
             print("      ★★湧いた内訳: 動き%+9.1f 変換%+7.1f 配る%+9.1f | "
                   "重力の仕事%+10.1f  LJ位置%+9.1f"

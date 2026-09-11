@@ -61,6 +61,11 @@ td:last-child{text-align:right;font-weight:600}
   <span><span class="k">温度</span><span id="T" class="v">-</span></span>
   <span><span class="k">経過</span><span id="min" class="v">-</span></span>
 </header>
+<div id="pick" style="margin:8px 0;font-size:12px;display:none">
+  <span class="k">見る世界</span>
+  <button data-src="history-futsu.json">ふつう（障壁0.55）</button>
+  <button data-src="history-katai.json">固い（障壁3.0）</button>
+</div>
 <div id="say"></div>
 <section id="zukan" style="margin:10px 0">
   <h2>できたもの
@@ -71,8 +76,8 @@ td:last-child{text-align:right;font-weight:600}
       ★下の数字＝いまある数（0＝もう無いが、出たことはある）</small></div>
   <div id="atoms" class="chips"></div>
   <div class="zk"><b>分子</b>
-    <small>　★くっついて離れない塊。★Oct₂＝質量8が2つ。
-      ★数歩で消えるので「これまでに出たもの」を並べる</small></div>
+    <small>　★くっついて離れない塊。★Oct₂＝質量8が2つ。★「・」が原子の区切り。
+      ★★**最長◯歩**＝その中身が続けてくっついていた歩数。★ここが伸びたら本物の分子</small></div>
   <div id="mols" class="chips"></div>
 </section>
 <main>
@@ -218,8 +223,13 @@ async function tick(){
   let s;
   try{s=await(await fetch("/state.json",{cache:"no-store"})).json();}
   catch(e){
-    try{s=await(await fetch("history.json",{cache:"no-store"})).json();}
-    catch(e2){return;}
+    // ★★動いていない＝置いてある紙を読む。★そのときだけ世界を選べる
+    document.getElementById("pick").style.display="block";
+    try{s=await(await fetch(SRC,{cache:"no-store"})).json();}
+    catch(e2){
+      if(SRC!=="history.json"){SRC="history.json";}
+      try{s=await(await fetch(SRC,{cache:"no-store"})).json();}catch(e3){return;}
+    }
   }
   const st=s.stat||{},h=s.hist||{};
   P("step",st.step);P("drift",st.drift,"%");P("mdrift",st.mdrift,"%");
@@ -278,10 +288,23 @@ async function tick(){
     return '<span class="chip" title="'+m.first+'歩目にはじめて出た／のべ'
          + m.times+'回" style="border-color:#3E7BAA;color:#93C6E8'+gone+'">'
          + '<b>'+m.f+'</b>質量'+m.mass+'・いま'+m.n
-         + '<br><i>'+m.size+'粒・のべ'+m.times+'回</i></span>';
+         + '<br><i>'+m.size+'粒・最長'+(m.life||0)+'歩</i></span>';
   }).join("") : '<span class="chip"><i>まだ無い</i></span>';
   document.getElementById("log").textContent=(s.log||[]).join("\n");
   LAST=s;draw();
 }
+// ★★★どの世界を見るか。★覚えておく
+let SRC="history.json";
+try{SRC=localStorage.getItem("earthSrc")||"history.json";}catch(e){}
+document.querySelectorAll("#pick button").forEach(b=>{
+  b.onclick=()=>{
+    SRC=b.dataset.src;
+    try{localStorage.setItem("earthSrc",SRC);}catch(e){}
+    document.querySelectorAll("#pick button").forEach(x=>x.style.fontWeight="");
+    b.style.fontWeight="bold";
+    tick();
+  };
+  if(b.dataset.src===SRC) b.style.fontWeight="bold";
+});
 tick();setInterval(tick,800);
 </script>

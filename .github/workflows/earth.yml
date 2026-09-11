@@ -6,7 +6,12 @@ name: 地球がまわる
 #
 # ★★なぜ 20分で切るのか
 #   ★枠の途中で落ちても、★**20分ぶんしか失わない**。
-#   ★★区切るたびに docs/history.json を更新するので、★画面も 20分ごとに新しくなる。
+#   ★★区切るたびに docs/ を更新するので、★画面も 20分ごとに新しくなる。
+#
+# ★★★なぜ2本あるのか（2026-09-11）
+#   ★融合の障壁が違うだけの2つの世界を並べる。★ここが世界の性格を決めていた。
+#   ★障壁が低いと**軽い原子が全部燃えて**、残るのは不活性なものばかりになる。
+#   ★本物の宇宙は138億年たっても水素が75%残っている。★どちらが近いかを測る。
 
 on:
   schedule:
@@ -32,6 +37,21 @@ jobs:
   turn:
     runs-on: ubuntu-latest
     timeout-minutes: 330      # ★無料枠の上限は6時間。★余裕を取る
+    strategy:
+      fail-fast: false        # ★1本が転んでも、もう1本は走り切る
+      max-parallel: 2
+      matrix:
+        include:
+          - lin: futsu
+            coulomb: "0.55"   # ★はじめの世界（★対照）
+          - lin: katai
+            coulomb: "3.0"    # ★融合を固くした世界
+    env:
+      LIN: ${{ matrix.lin }}
+      EARTH_COULOMB: ${{ matrix.coulomb }}
+      EARTH_STATE: state-${{ matrix.lin }}.npz
+      EARTH_HIST: history-${{ matrix.lin }}.json
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,30 +67,28 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            state.npz
-            history.json
-          key: earth-state-${{ github.run_number }}
+            state-${{ matrix.lin }}.npz
+            history-${{ matrix.lin }}.json
+          key: earth-${{ matrix.lin }}-${{ github.run_number }}
           restore-keys: |
-            earth-state-
+            earth-${{ matrix.lin }}-
 
       # ★★「いま」を思い出す ②Release（★cache は10GB超えで**黙って**消える）
       - name: cache に無ければ Release から取り戻す
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -f state.npz ]; then echo "★cache にいまの地球がいた"; exit 0; fi
-          if gh release download world -p state.npz -D . 2>/dev/null; then
+          if [ -f "$EARTH_STATE" ]; then echo "★cache に $LIN の地球がいた"; exit 0; fi
+          if gh release download world -p "$EARTH_STATE" -D . 2>/dev/null; then
             echo "★Release から取り戻した"
           else
-            echo "★まだどこにも無い。★ここが最初のひと突きになる"
+            echo "★$LIN はまだどこにも無い。★ここが最初のひと突きになる"
           fi
-          gh release download world -p history.json -D . 2>/dev/null || true
+          gh release download world -p "$EARTH_HIST" -D . 2>/dev/null || true
 
       - name: 作り直しを言われたら消す
         if: github.event.inputs.reset == '1'
         run: |
-          rm -f state.npz history.json
-          echo "★世界を作り直す"
+          rm -f "$EARTH_STATE" "$EARTH_HIST"
+          echo "★$LIN の世界を作り直す"
 
       # ── ★★★まわす ───────────────────────────
       - name: まわす
@@ -78,23 +96,22 @@ jobs:
           EARTH_MINUTES: "20"       # ★1区切り
           EARTH_SAVE_EVERY: "500"
           ISLAND_PORT: "8766"
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config user.name  "earth"
           git config user.email "earth@users.noreply.github.com"
           mkdir -p docs
           for i in $(seq 1 14); do
-            echo "──────── ★$i 区切り目 ────────"
+            echo "──────── ★$LIN $i 区切り目 ────────"
             BEFORE=$(python report.py step)
             set +e
             python -u earth.py > run.log 2>&1
             RC=$?
             set -e
-            grep -v "湧いた内訳" run.log | tail -18
+            grep -v "湧いた内訳" run.log | tail -14
             if [ $RC -ne 0 ]; then
               echo "★★落ちた（$RC）"; tail -40 run.log; exit 1
             fi
-            if [ ! -f state.npz ]; then
+            if [ ! -f "$EARTH_STATE" ]; then
               echo "★★紙が置かれていない。★止める"; exit 1
             fi
             AFTER=$(python report.py step)
@@ -103,20 +120,32 @@ jobs:
               echo "★★1歩も進んでいない。★止める"; exit 1
             fi
 
-            # ★★★画面用。★index.html は view.html のそのまま（★1つを直せば両方直る）
+            # ★★★画面用。★index.html は view.html のそのまま（★1つ直せば両方直る）
             cp view.html docs/index.html
-            cp history.json docs/history.json 2>/dev/null || true
-            git add -f docs/index.html docs/history.json
-            if ! git diff --cached --quiet; then
-              git commit -q -m "地球 $(python report.py)"
-              # ★★押し合いになったら、向こうを先に入れてから載せ直す
-              git pull --rebase -q origin main || git rebase --abort || true
-              git push -q origin HEAD:main || echo "★押せなかった（次の区切りで入る）"
-            fi
+            cp "$EARTH_HIST" "docs/$EARTH_HIST"
+            # ★★既定で開いたときに出るのは futsu
+            if [ "$LIN" = "futsu" ]; then cp "$EARTH_HIST" docs/history.json; fi
+            git add -f docs/
+
+            # ★★★押し合う（★2本が同時に押す）。★向こうを入れてから載せ直す
+            for try in 1 2 3 4 5; do
+              if git diff --cached --quiet; then break; fi
+              git commit -q -m "地球[$LIN] $(python report.py)"
+              git fetch -q origin main
+              if git rebase -q origin/main; then
+                if git push -q origin HEAD:main; then
+                  echo "★押した（$try回目）"; break
+                fi
+              else
+                git rebase --abort || true
+                git reset -q --soft HEAD~1 || true
+              fi
+              sleep $((RANDOM % 10 + 3))
+            done
 
             # ★★★Release にも置く（★cache が消えても地球は残る）
-            gh release upload world state.npz history.json --clobber 2>/dev/null \
-              || gh release create world state.npz history.json \
+            gh release upload world "$EARTH_STATE" "$EARTH_HIST" --clobber 2>/dev/null \
+              || gh release create world "$EARTH_STATE" "$EARTH_HIST" \
                    -t "いまの地球" -n "★最後に見た「いま」。★ここから続きが始まる" \
               || echo "★Release に置けなかった"
           done
@@ -126,15 +155,13 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            state.npz
-            history.json
-          key: earth-state-${{ github.run_number }}
+            state-${{ matrix.lin }}.npz
+            history-${{ matrix.lin }}.json
+          key: earth-${{ matrix.lin }}-${{ github.run_number }}
 
-      # ★★★次の回を自分で呼ぶ
+      # ★★★次の回を自分で呼ぶ。★呼ぶのは1本だけ（★2本が呼ぶと2重になる）
       - name: 次の回を呼ぶ
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        if: always() && matrix.lin == 'futsu'
         run: |
           sleep 20
           gh workflow run earth.yml --ref main && echo "★次の回を呼んだ" || true
