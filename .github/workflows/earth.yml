@@ -1,0 +1,140 @@
+name: 地球がまわる
+
+# ★★★置いた人が見ていなくても、地球はまわり続ける。
+#   ★1回の枠で 20分 × 14 まわし、★そのたびに「いま」を紙に落として置く。
+#   ★終わったら自分で次の回を呼ぶ。★だから止まらない。
+#
+# ★★なぜ 20分で切るのか
+#   ★枠の途中で落ちても、★**20分ぶんしか失わない**。
+#   ★★区切るたびに docs/history.json を更新するので、★画面も 20分ごとに新しくなる。
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"     # ★保険。★連鎖が切れても6時間で拾い直す
+  push:
+    paths:
+      - ".github/workflows/earth.yml"
+  workflow_dispatch:
+    inputs:
+      reset:
+        description: "1 を入れると**世界を作り直す**（★いまの地球は消える）"
+        default: "0"
+
+permissions:
+  contents: write
+  actions: write              # ★次の回を自分で呼ぶため
+
+concurrency:
+  group: earth
+  cancel-in-progress: false   # ★★自分で呼んだ次の回が自分を殺さないように
+
+jobs:
+  turn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330      # ★無料枠の上限は6時間。★余裕を取る
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 道具
+        run: pip install --quiet numpy
+
+      # ★★「いま」を思い出す ①cache
+      - name: いまの地球を思い出す
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            state.npz
+            history.json
+          key: earth-state-${{ github.run_number }}
+          restore-keys: |
+            earth-state-
+
+      # ★★「いま」を思い出す ②Release（★cache は10GB超えで**黙って**消える）
+      - name: cache に無ければ Release から取り戻す
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f state.npz ]; then echo "★cache にいまの地球がいた"; exit 0; fi
+          if gh release download world -p state.npz -D . 2>/dev/null; then
+            echo "★Release から取り戻した"
+          else
+            echo "★まだどこにも無い。★ここが最初のひと突きになる"
+          fi
+          gh release download world -p history.json -D . 2>/dev/null || true
+
+      - name: 作り直しを言われたら消す
+        if: github.event.inputs.reset == '1'
+        run: |
+          rm -f state.npz history.json
+          echo "★世界を作り直す"
+
+      # ── ★★★まわす ───────────────────────────
+      - name: まわす
+        env:
+          EARTH_MINUTES: "20"       # ★1区切り
+          EARTH_SAVE_EVERY: "500"
+          ISLAND_PORT: "8766"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "earth"
+          git config user.email "earth@users.noreply.github.com"
+          mkdir -p docs
+          for i in $(seq 1 14); do
+            echo "──────── ★$i 区切り目 ────────"
+            BEFORE=$(python report.py step)
+            set +e
+            python -u earth.py > run.log 2>&1
+            RC=$?
+            set -e
+            grep -v "湧いた内訳" run.log | tail -18
+            if [ $RC -ne 0 ]; then
+              echo "★★落ちた（$RC）"; tail -40 run.log; exit 1
+            fi
+            if [ ! -f state.npz ]; then
+              echo "★★紙が置かれていない。★止める"; exit 1
+            fi
+            AFTER=$(python report.py step)
+            echo "★$BEFORE歩 → $AFTER歩"
+            if [ "$AFTER" -le "$BEFORE" ]; then
+              echo "★★1歩も進んでいない。★止める"; exit 1
+            fi
+
+            # ★★★画面用。★index.html は view.html のそのまま（★1つを直せば両方直る）
+            cp view.html docs/index.html
+            cp history.json docs/history.json 2>/dev/null || true
+            git add -f docs/index.html docs/history.json
+            if ! git diff --cached --quiet; then
+              git commit -q -m "地球 $(python report.py)"
+              # ★★押し合いになったら、向こうを先に入れてから載せ直す
+              git pull --rebase -q origin main || git rebase --abort || true
+              git push -q origin HEAD:main || echo "★押せなかった（次の区切りで入る）"
+            fi
+
+            # ★★★Release にも置く（★cache が消えても地球は残る）
+            gh release upload world state.npz history.json --clobber 2>/dev/null \
+              || gh release create world state.npz history.json \
+                   -t "いまの地球" -n "★最後に見た「いま」。★ここから続きが始まる" \
+              || echo "★Release に置けなかった"
+          done
+
+      - name: いまの地球を cache に置く
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            state.npz
+            history.json
+          key: earth-state-${{ github.run_number }}
+
+      # ★★★次の回を自分で呼ぶ
+      - name: 次の回を呼ぶ
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sleep 20
+          gh workflow run earth.yml --ref main && echo "★次の回を呼んだ" || true

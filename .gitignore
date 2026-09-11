@@ -1,0 +1,8 @@
+state*.npz
+state*.npz.tmp.npz
+history*.json
+history*.json.tmp
+!docs/history.json
+run.log
+__pycache__/
+*.bak

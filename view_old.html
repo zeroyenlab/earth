@@ -1,0 +1,197 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>地球</title>
+<style>
+:root{--bg:#080B0D;--pan:#10161A;--ln:#1E2A30;--tx:#DFE8EC;--dim:#7D8E97;
+      --hot:#E0672F;--cold:#4FA7C4;--warn:#E5B33C;--ok:#54B98C}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:13px/1.6 "Segoe UI",system-ui,sans-serif}
+header{padding:10px 16px;border-bottom:1px solid var(--ln);display:flex;gap:20px;
+  align-items:baseline;flex-wrap:wrap}
+h1{font-size:14px;margin:0;letter-spacing:.14em}
+.k{color:var(--dim);font-size:10.5px;display:block;letter-spacing:.06em}
+.v{font-variant-numeric:tabular-nums;font-size:16px}
+.big{font-size:25px;font-variant-numeric:tabular-nums;line-height:1.1}
+.hot{color:var(--hot)}.warn{color:var(--warn)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:#555}
+.dot.on{background:var(--ok);box-shadow:0 0 9px var(--ok)}
+#say{margin:10px 12px 0;padding:11px 15px;background:#131D22;border:1px solid #24333A;
+  border-radius:6px;font-size:13.5px;line-height:1.75}
+main{padding:12px;display:grid;gap:12px}
+#top{display:grid;grid-template-columns:1fr 330px;gap:12px;align-items:start}
+@media(max-width:960px){#top{grid-template-columns:1fr}}
+#charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+section{background:var(--pan);border:1px solid var(--ln);border-radius:6px;padding:12px;min-width:0}
+section.key{border-color:#4A3A1C;background:#181509}
+h2{font-size:12px;margin:0 0 3px;font-weight:600}
+h2 small{color:var(--dim);font-weight:400}
+.why{font-size:10.5px;color:var(--warn);margin:0 0 8px;line-height:1.6}
+canvas.sp{width:100%;height:104px;display:block}
+#sky{width:100%;display:block;background:#05080A;border-radius:3px}
+#log{font:11px/1.55 Consolas,monospace;max-height:300px;overflow:auto;
+  white-space:pre-wrap;color:var(--dim)}
+.hint{font-size:10px;color:var(--dim);margin-top:6px;line-height:1.6}
+.laws{font-size:11px;color:var(--dim);line-height:1.9}
+.laws b{color:var(--tx)}
+</style>
+<header>
+  <h1>地球</h1>
+  <span><span id="dot" class="dot"></span> <span id="st" class="k" style="display:inline">待機</span></span>
+  <span><span class="k">歩</span><span id="step" class="big">0</span></span>
+  <span><span class="k hot">温度</span><span id="T" class="big hot">-</span></span>
+  <span><span class="k warn">★スケール</span><span id="scales" class="big warn">-</span></span>
+  <span><span class="k warn">★状態の再訪</span><span id="revisit" class="big warn">-</span></span>
+  <span><span class="k warn">★種類</span><span id="bonds" class="big warn">-</span></span>
+  <span><span class="k">塊</span><span id="clusters" class="v">-</span></span>
+  <span><span class="k">最大の塊</span><span id="big" class="v">-</span></span>
+  <span><span class="k">経過</span><span id="min" class="v">-</span></span>
+</header>
+<div id="say"></div>
+<main>
+ <div id="top">
+  <section>
+    <h2>世界 <small>　3次元・ドラッグで回せる／ 1点＝1粒子（2つに1つ）／ 色＝出ている手の数</small></h2>
+    <canvas id="sky" style="cursor:grab;touch-action:none"></canvas>
+    <div class="hint">青＝軽い　／　橙＝重い。全部「1」から始まって、融合と分裂で増える。<br>
+      冷えてくると、くっついた塊が動かなくなる。それが「1つの存在」になった姿。<br>
+      奥ほど暗く小さい。灰色の線は世界の箱。</div>
+  </section>
+  <section>
+    <h2>僕が書いた法則</h2>
+    <div class="laws">
+      <b>① ポテンシャル</b> ── 遠いと引き、近いと反発。大きさは質量から（σ ∝ m<sup>1/3</sup>）<br>
+      <b>② にじみ</b> ── 局所の差を隣で均す。質量に当てると<b>重力</b>（3次元で 1/r²・実測）<br>
+      <b>③ 変換</b> ── 軽いものは<b>融合</b>して熱を出す。重いものは<b>分裂</b>して熱を出す。<br>
+      　　どちらが起きるかは<b>結合エネルギーの曲線だけ</b>が決める<br>
+      <b>④ 保存</b> ── 外へ出た熱だけが世界から消える（放射）<br><br>
+      <b>最下層に置いたのは、曲線1本だけ</b> ── B(m)/m がある質量で最大になる山。
+      その質量が何になるかは決めていない。これ1本で
+      「軽いものは融合し、重いものは分裂し、真ん中に溜まる」が全部決まる<br><br>
+      <b>崩壊がいつ起きるか</b>は、本物の実行時間のジッタが決める。
+      実際の放射性崩壊も予測できない<br><br>
+      <span style="color:var(--warn)">書いていないもの ── 分子の一覧・種類の定義・目的関数・報酬・難易度・「くっつくか」の判定・「これは1つだ」の判定・乱数の種</span>
+    </div>
+    <h2 style="margin-top:14px">流れ</h2>
+    <div id="log"></div>
+  </section>
+ </div>
+ <div id="charts">
+  <section class="key">
+    <h2>① スケールの数 <small>＝ 階層の深さ</small></h2>
+    <p class="why">★★主判定。塊の大きさに、いくつの山があるか。<br>増え続ければ「階層が上がり続けている」</p>
+    <canvas class="sp" id="c1"></canvas>
+  </section>
+  <section class="key">
+    <h2>② 状態の再訪 <small>累計</small></h2>
+    <p class="why">★★★0のままであってほしい。増えたら<b>周期に入った＝結晶</b>。<br>本物のジッタで揺さぶってるのは、これを防ぐため</p>
+    <canvas class="sp" id="c2"></canvas>
+  </section>
+  <section class="key">
+    <h2>③ 温度</h2>
+    <p class="why">★入力ではなく<b>結果</b>。下がるほど弱い結合が生き残る＝新しい種類が生まれる</p>
+    <canvas class="sp" id="c3"></canvas>
+  </section>
+  <section>
+    <h2>④ 種類の数 <small>違う質量がいくつあるか</small></h2>
+    <p class="why">★★原理②が本当に効いているか。増え続ければ「組み合わせが次の素になっている」</p>
+    <canvas class="sp" id="c4"></canvas>
+  </section>
+  <section>
+    <h2>⑤ 層の数 <small>半径ごとの平均質量の段</small></h2>
+    <canvas class="sp" id="c5"></canvas>
+  </section>
+  <section>
+    <h2>⑥ 一番重い粒子</h2>
+    <p class="why">★曲線の山（8）を超えたら分裂に転じるはず。★僕は8と書いていない</p>
+    <canvas class="sp" id="c6"></canvas>
+  </section>
+ </div>
+</main>
+<script>
+function spark(cv,a,col){
+  if(!cv)return;
+  const d=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+  cv.width=w*d;cv.height=h*d;const g=cv.getContext("2d");g.scale(d,d);g.clearRect(0,0,w,h);
+  g.fillStyle="#7D8E97";g.font="11px system-ui";
+  if(!a||a.length<2){g.textAlign="center";g.fillText("…",w/2,h/2);return;}
+  let mn=Math.min(...a),mx=Math.max(...a);if(mx===mn)mx=mn+1;
+  g.strokeStyle=col||"#54B98C";g.lineWidth=1.7;g.beginPath();
+  a.forEach((v,i)=>{const x=w*i/(a.length-1),y=8+(h-22)*(1-(v-mn)/(mx-mn));i?g.lineTo(x,y):g.moveTo(x,y);});
+  g.stroke();
+  const f=v=>(Math.abs(v)<10?v.toFixed(2):v.toFixed(0));
+  g.fillStyle="#7D8E97";g.textAlign="left";g.fillText(f(mx),4,13);g.fillText(f(mn),4,h-5);
+  g.fillStyle=col||"#54B98C";g.font="bold 15px system-ui";g.textAlign="right";
+  g.fillText(f(a[a.length-1]),w-4,h-5);
+}
+const P=(id,v,s)=>{const e=document.getElementById(id);if(e)e.textContent=(v==null?"-":v)+(s||"");};
+async function tick(){
+  let s;try{s=await(await fetch("/state.json",{cache:"no-store"})).json();}catch(e){return;}
+  const st=s.stat||{},h=s.hist||{};
+  P("step",st.step);P("T",st.T);P("scales",st.scales);P("revisit",st.revisit);
+  P("bonds",st.kinds);P("clusters",st.layers);P("big",st.mmax);P("min",st.min,"分");
+  document.getElementById("st").textContent=s.running?"動いている":"止まっている";
+  document.getElementById("dot").className="dot"+(s.running?" on":"");
+  document.getElementById("say").textContent=
+    "温度 "+(st.T==null?"-":st.T)+"　／　種類 "+(st.bonds==null?"-":st.bonds)
+    +"　／　層 "+(st.layers==null?"-":st.layers)+"（最大質量 "+(st.mmax==null?"-":st.mmax)+"）"
+    +"　／　★スケール "+(st.scales==null?"-":st.scales)
+    +"　／　★★状態の再訪 "+(st.revisit==null?"-":st.revisit)
+    +"　／　揺さぶり "+(st.jit==null?"-":st.jit)+"（"+(st.juniq==null?"-":st.juniq)+"種）";
+  spark(document.getElementById("c1"),h.scales,"#E5B33C");
+  spark(document.getElementById("c2"),h.revisit,"#E5B33C");
+  spark(document.getElementById("c3"),h.T,"#E0672F");
+  spark(document.getElementById("c4"),h.kinds,"#E5B33C");
+  spark(document.getElementById("c5"),h.layers,"#E5B33C");
+  spark(document.getElementById("c6"),h.mmax,"#4FA7C4");
+  document.getElementById("log").textContent=(s.log||[]).join("\n");
+  LAST=s;draw();
+}
+
+let RX=-0.35,RY=0.6,DRAG=false,LX=0,LY=0,LAST=null;
+const SKY=document.getElementById("sky");
+SKY.addEventListener("pointerdown",e=>{DRAG=true;LX=e.clientX;LY=e.clientY;SKY.setPointerCapture(e.pointerId);});
+SKY.addEventListener("pointermove",e=>{if(!DRAG)return;
+  RY+=(e.clientX-LX)*0.008;RX+=(e.clientY-LY)*0.008;
+  RX=Math.max(-1.45,Math.min(1.45,RX));LX=e.clientX;LY=e.clientY;draw();});
+["pointerup","pointercancel"].forEach(t=>SKY.addEventListener(t,()=>{DRAG=false;}));
+
+function rot(p){
+  const cy=Math.cos(RY),sy=Math.sin(RY);
+  let x=p[0]*cy+p[2]*sy, z=-p[0]*sy+p[2]*cy;
+  const cx=Math.cos(RX),sx=Math.sin(RX);
+  let y=p[1]*cx-z*sx; z=p[1]*sx+z*cx;
+  return [x,y,z];
+}
+function draw(){
+  const s=LAST; if(!s)return;
+  const ps=s.pos||[],dg=s.deg||[],L=s.L||120;
+  const cv=SKY,W=cv.clientWidth;cv.style.height=W+"px";
+  const d=window.devicePixelRatio||1;cv.width=W*d;cv.height=W*d;
+  const g=cv.getContext("2d");g.scale(d,d);g.clearRect(0,0,W,W);
+  const dc=3.0;
+  const S=W*0.62/L, CX=W/2, CY=W/2;
+  const pr=p=>{const r=rot([p[0]-L/2,p[1]-L/2,p[2]-L/2]);
+    const f=dc/(dc-r[2]/L*1.6);
+    return [CX+r[0]*S*f, CY-r[1]*S*f, r[2]];};
+  // ★世界の箱
+  const V=[];for(let a=0;a<2;a++)for(let b=0;b<2;b++)for(let c=0;c<2;c++)
+    V.push(pr([a*L,b*L,c*L]));
+  const E=[[0,1],[0,2],[0,4],[1,3],[1,5],[2,3],[2,6],[3,7],[4,5],[4,6],[5,7],[6,7]];
+  g.strokeStyle="#1E2A30";g.lineWidth=1;
+  E.forEach(e=>{g.beginPath();g.moveTo(V[e[0]][0],V[e[0]][1]);
+    g.lineTo(V[e[1]][0],V[e[1]][1]);g.stroke();});
+  // ★奥から手前へ
+  const pts=[];
+  for(let i=0;i<ps.length;i++){const q=pr(ps[i]);pts.push([q[0],q[1],q[2],dg[i]||0]);}
+  pts.sort((a,b)=>a[2]-b[2]);
+  for(const q of pts){
+    const t=Math.min(1,Math.log2(Math.max(1,q[3]))/4), z=(q[2]/L+0.5);
+    const dep=0.35+0.65*Math.max(0,Math.min(1,z));
+    g.fillStyle="rgb("+Math.round((79+145*t)*dep)+","+Math.round((167-64*t)*dep)+","+Math.round((196-150*t)*dep)+")";
+    g.globalAlpha=0.45+0.55*t;
+    g.beginPath();g.arc(q[0],q[1],(1.0+1.6*t)*(0.6+0.7*z),0,6.283);g.fill();
+  }
+  g.globalAlpha=1;
+}
+tick();setInterval(tick,700);
+</script>
