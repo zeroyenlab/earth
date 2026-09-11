@@ -60,12 +60,8 @@ td:last-child{text-align:right;font-weight:600}
   <span><span class="k">粒子</span><span id="n" class="v">-</span></span>
   <span><span class="k">温度</span><span id="T" class="v">-</span></span>
   <span><span class="k">経過</span><span id="min" class="v">-</span></span>
+  <span><span class="k">融合の障壁</span><span id="cb" class="v">-</span></span>
 </header>
-<div id="pick" style="margin:8px 0;font-size:12px;display:none">
-  <span class="k">見る世界</span>
-  <button data-src="history-futsu.json">ふつう（障壁0.55）</button>
-  <button data-src="history-katai.json">固い（障壁3.0）</button>
-</div>
 <div id="say"></div>
 <section id="zukan" style="margin:10px 0">
   <h2>できたもの
@@ -224,7 +220,6 @@ async function tick(){
   try{s=await(await fetch("/state.json",{cache:"no-store"})).json();}
   catch(e){
     // ★★動いていない＝置いてある紙を読む。★そのときだけ世界を選べる
-    document.getElementById("pick").style.display="block";
     try{s=await(await fetch(SRC,{cache:"no-store"})).json();}
     catch(e2){
       if(SRC!=="history.json"){SRC="history.json";}
@@ -234,7 +229,15 @@ async function tick(){
   const st=s.stat||{},h=s.hist||{};
   P("step",st.step);P("drift",st.drift,"%");P("mdrift",st.mdrift,"%");
   P("fuel",st.fuel,"%");P("kinds",st.kinds);P("layers",st.layers);
-  P("revisit",st.revisit);P("n",st.n);P("T",st.T);P("min",st.min,"分");
+  P("revisit",st.revisit);P("n",st.n);P("T",st.T);
+  // ★★経過は「その世界が生きてきた合計」。★長くなるので時間・日に丸める
+  const mi=st.min||0;
+  document.getElementById("min").textContent =
+    mi>=1440 ? (mi/1440).toFixed(1)+"日" : mi>=120 ? (mi/60).toFixed(1)+"時間" : mi.toFixed(1)+"分";
+  // ★★どちらの世界か
+  const cb=(s.cfg||{}).coulomb;
+  document.getElementById("cb").textContent =
+    cb==null ? "-" : (cb+(cb>=2 ? "（固い）" : "（ふつう）"));
   const dr=Math.abs(st.drift||0);
   document.getElementById("drift").className="big "+(dr<0.5?"ok":"bad");
   P("dabs",st.dabs);
@@ -293,18 +296,6 @@ async function tick(){
   document.getElementById("log").textContent=(s.log||[]).join("\n");
   LAST=s;draw();
 }
-// ★★★どの世界を見るか。★覚えておく
 let SRC="history.json";
-try{SRC=localStorage.getItem("earthSrc")||"history.json";}catch(e){}
-document.querySelectorAll("#pick button").forEach(b=>{
-  b.onclick=()=>{
-    SRC=b.dataset.src;
-    try{localStorage.setItem("earthSrc",SRC);}catch(e){}
-    document.querySelectorAll("#pick button").forEach(x=>x.style.fontWeight="");
-    b.style.fontWeight="bold";
-    tick();
-  };
-  if(b.dataset.src===SRC) b.style.fontWeight="bold";
-});
 tick();setInterval(tick,800);
 </script>

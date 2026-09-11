@@ -210,6 +210,7 @@ class Earth(object):
         self.next_pid = int(n)
         self.m3 = np.zeros((G,) * DIM)
         self.step_n = 0
+        self.secs = 0.0          # ★★★この世界が生きてきた合計の秒数（★区切りをまたぐ）
         self.seen, self.revisits, self.escaped = {}, 0, 0
         self.trail = []
         self.nfuse = self.nfiss = 0
@@ -787,7 +788,7 @@ class Earth(object):
     #   ★保存するのは**世界そのもの**（位置・速さ・質量・にじみの場）と
     #   ★**台帳**（湧いた分・逃げた分・外へ出た分）と**指紋**（再訪の記憶）。
     #   ★ジッタは保存しない ── ★崩壊の「いつ」は毎回あたらしく実行時間から取る。
-    SCALARS = ("step_n", "revisits", "escaped", "nfuse", "nfiss", "nfuse_endo",
+    SCALARS = ("step_n", "secs", "revisits", "escaped", "nfuse", "nfiss", "nfuse_endo",
                "heat", "Ein", "Eout", "mass0", "Ebind_max", "mass_esc",
                "E0tot", "d_move", "d_tr", "d_del", "Wgrav", "_wprev",
                "reach2", "Elj")
@@ -881,20 +882,22 @@ def main():
                   % (w.step_n, w.n, w.mass.sum()), flush=True)
         except Exception as e:
             print("★★続きが読めなかった（%r）。★最初から始める" % (e,), flush=True)
-    live.put(running=True, cfg=dict(N=w.n, L=L, dim=DIM))
+    live.put(running=True, cfg=dict(N=w.n, L=L, dim=DIM, coulomb=COULOMB))
     live.log("★地球 v2 ── ★★法則4つ。★熱源は世界の中（変換）だけ")
     live.log("★★★最下層に置いたのは**結合エネルギーの曲線1本**。★元素の一覧は書いていない")
     live.log("★崩壊がいつ起きるかは、★★本物の実行時間のジッタが決める")
     t0 = time.time()
+    base_secs = w.secs                    # ★★前の区切りまでの合計
     stop_at = (w.step_n + MAX_STEPS) if MAX_STEPS > 0 else 0
     while True:
         T = w.step()
+        w.secs = base_secs + (time.time() - t0)
         if w.step_n % 5 == 0:
             st = w.stats(T)
             for k in hist:
                 hist[k].append(st[k])
                 del hist[k][:-500]
-            live.put(stat=dict(st, min=round((time.time() - t0) / 60, 1)),
+            live.put(stat=dict(st, min=round(w.secs / 60.0, 1)),
                      hist=hist, L=L,
                      pos=[[round(float(p[0]), 2), round(float(p[1]), 2),
                            round(float(p[2]), 2)] for p in w.pos],
