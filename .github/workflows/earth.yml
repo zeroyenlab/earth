@@ -31,9 +31,11 @@ permissions:
 
 concurrency:
   group: earth
-  # ★★★この回だけ true。★死んだ世界を4時間半書き続けている古い回を止めるため。
-  #   ★★次の push で false に戻す（★true のままだと自分で呼んだ次の回が自分を殺す）。
-  cancel-in-progress: true
+  # ★★★false に戻す（2026-09-11）。
+  #   ★true の間に実際に起きたこと: ★回4 → 回5 → 回6 と、★**自分で呼んだ回が前の回を殺した**。
+  #   ★状態は毎回ちゃんと保存されていたので失われていないが、★区切りの途中は捨てている。
+  #   ★止めたい回があるときだけ、★その回だけ true にして push する。
+  cancel-in-progress: false
 
 jobs:
   turn:
