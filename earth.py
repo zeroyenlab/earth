@@ -830,7 +830,10 @@ class Earth(object):
                     pick = np.round(qa2).astype(int) == k
                     mm2 = np.round(ma2[pick], 1)
                     elems.append(dict(
-                        q=int(k), n=int(pick.sum()),
+                        q=int(k), name=sym(k), n=int(pick.sum()),
+                        # ★★同位体の呼び名は本物と同じ形（★記号-質量数）
+                        iso_names=[sym(k) + "-" + str(int(round(x)))
+                                   for x in sorted(set(mm2.tolist()))][:8],
                         iso=int(len(set(mm2.tolist()))),
                         med=round(float(np.median(mm2)), 1),
                         want=round(k / max(1e-9, Z_FRAC), 1),   # ★谷の予想
